@@ -1,10 +1,10 @@
 
 CFLAGS =  -Wall -g -std=c++11
 
-all: msg
+all: hello
 
-msg: msg.o
-	g++ -o msg msg.o
+hello: hello.o
+	g++ -o hello hello.o ${CFLAGS}
 
-msg.o: msg.cpp
-	g++ -c msg.cpp ${CFLAGS}
+hello.o: hello.cpp
+	g++ -c hello.cpp ${CFLAGS}
