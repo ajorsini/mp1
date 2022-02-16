@@ -3,7 +3,11 @@
 
 #define FALSE 0
 #define TRUE 1
-#define MSGSZ 10
+#define ADDRSZ 6
+#define MAXMSGSZ 512
+#define TFAIL 8
+#define TCLEANUP 16
+#define TGOSSIP 10
 
 /**
  * Message Types
@@ -29,11 +33,11 @@ typedef enum Statuses {
 
 class nodeEntry {
 private:
-  char addr[6];
+  char addr[ADDRSZ];
   long hb, myhb;
+  time_t tstamp;
   Statuses status;
   nodeEntry *prev, *next;
-
 public:
   nodeEntry() {};
   nodeEntry(char *addr, long hb, long myhb, Statuses status);
@@ -54,13 +58,18 @@ public:
     return r;
   }
   bool setmyhb(long myhb) {
-    bool r = (this->myhb < myhb);
-    if(r) this->myhb = myhb;
-    return r;
+    this->myhb = myhb;
+    time(&this->tstamp);
+    return TRUE;
+  }
+  long myhbinc() {
+    this->myhb++;
+    time(&this->tstamp);
+    return this->myhb;
   }
   bool setstatus(Statuses status) {
     bool r = (this->status == status);
-    this->status = status;
+    if(r) this->status = status;
     return r;
   }
   char *encode(char **b);
@@ -72,12 +81,83 @@ public:
   bool operator >(const nodeEntry &anotherNodeEntry);
 };
 
-void destroyNodeList(nodeEntry *n);
+class Operation {
+private:
+  nodeEntry *peersList, *me;
+  vector<nodeEntry *> pingList, gossipList;
+  size_t recsz;
+  char msgBff[MAXMSGSZ];
+public:
+  Operation() {};
+  Operation(char *addr, long hb=0, long myhb=0, Statuses status=ALIVE);
+  ~Operation() {};
+  void destroyPeersList(nodeEntry *n);
+  void initPingList();
+  char *getHeader(MsgTypes t, char *iAddr=NULL);
+  joinreq();
+  joinrep();
+  ping();
+  pong();
+  iping();
+  ipong();
+  pgyping();
+  pgypong();
+  ipgyping();
+  ipgypong();
+};
+
+Operation::Operation(char *addr, long hb=0, long myhb=0, Statuses status=ALIVE) {
+  me = new nodeEntry(addr, hb, myhb, status);
+  recsz = sizeof(addr)+sizeof(hb)+sizeof(status);
+  peersList = NULL;
+}
+
+void Operation::destroyPeersList(nodeEntry *n) {
+  nodeEntry *x;
+  while((x = n->getPrev())) n = x;
+  while((x = n->getNext())) {
+    delete n;
+    n = x;
+  }
+  delete n;
+}
+
+Operation::~Operation() {
+  destroyPeersList(peersList);
+  delete me;
+  pingList.clear();
+  gossipList.clear();
+};
+
+void Operation::initPingList() {
+  nodeEntry *n = peersList, *x;
+  random_device rd;
+  while((x = n->getPrev())) n = x;
+  while(n) {
+    pingList.push_back(n);
+    n = n->next;
+  }
+  mt19937 generator(rd());
+  shuffle(pingList.begin(), pingList.end(), generator);
+}
+
+char *Operation::getHeader(MsgTypes t, char *iAddr=NULL) {
+  char *b = msgBff;
+  memcpy(b, &t, sizeof(t)); b+=sizeof(t);
+  me->encode(&b);
+  if(iAddr) memcpy(b, iAddr, sizeof(iAddr)); b+=sizeof(iAddr);
+  return b;
+}
+
+char *Operation::getPayload(char *b) {
+}
+
+/* ------------------- nodeEntry ----------------------- */
 
 nodeEntry::nodeEntry(char *addr, long hb, long myhb, Statuses status) {
   memcpy(this->addr, addr, sizeof(this->addr));
   this->hb = hb;
-  this->myhb = myhb;
+  setmyhb(myhb);
   this->status = status;
   this->prev = this->next = NULL;
 }
@@ -164,13 +244,15 @@ char *nodeEntry::decode(char **b) {
 
 void nodeEntry::show() {
   short port;
+  time_t timer;
   memcpy(&port, &addr[4], sizeof(port));
-  printf("%u.%u.%u.%u:%u, hb=%ld, myhb=%ld, st=%d\n",
+  printf("%u.%u.%u.%u:%u, hb=%ld, myhb=%ld, st=%d, elapt=%.f\n",
                              (unsigned char) addr[0],
                              (unsigned char) addr[1],
                              (unsigned char) addr[2],
                              (unsigned char) addr[3],
                              (unsigned short) port,
+                             difftime(timer, tstamp),
                              hb, myhb, status);
 }
 
@@ -179,6 +261,7 @@ nodeEntry& nodeEntry::operator =(const nodeEntry &anotherNodeEntry) {
   this->hb = anotherNodeEntry.hb;
   this->myhb = anotherNodeEntry.myhb;
   this->status = anotherNodeEntry.status;
+  this->tstamp = anotherNodeEntry.tstamp;
   this->prev = anotherNodeEntry.prev;
   this->next = anotherNodeEntry.next;
   return *this;
@@ -194,16 +277,6 @@ bool nodeEntry::operator <(const nodeEntry& anotherNodeEntry) {
 
 bool nodeEntry::operator >(const nodeEntry& anotherNodeEntry) {
 	return (memcmp(this->addr, anotherNodeEntry.addr, sizeof(this->addr)) > 0);
-}
-
-void destroyNodeList(nodeEntry *n) {
-  nodeEntry *x;
-  while((x = n->getPrev())) n = x;;
-  while((x = n->getNext())) {
-    delete n;
-    n = x;
-  }
-  delete n;
 }
 
 /* -------------------------------------------------------------- */
