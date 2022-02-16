@@ -5,17 +5,24 @@
 
 int main() {
   vector<int> v;
-  int i, n;
+  vector<int>::iterator it;
+  int i;
 
-  for(i=0; i<16; i++) v.push_back(i);
-  for(n : v) cout << n << ", ";
-  cout << newl;
+  for(i=0; i<16; i++) v.push_back(i+1);
 
-  for(n : v)
-    if(n % 2) v.erase(n);
+  for(it=v.begin() ; it != v.end(); it++)
+    cout << *it << ", ";
+  cout << endl;
 
-  for(n : v) cout << n << ", ";
-  cout << newl;
+  for(it=v.begin() ; it != v.end(); )
+    if(*it % 2)
+      it = v.erase(it);
+    else
+      it++;
+
+  for(it=v.begin() ; it != v.end(); it++)
+    cout << *it << ", ";
+  cout << endl;
 
   return(0);
 }
