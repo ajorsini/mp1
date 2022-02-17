@@ -7,7 +7,7 @@
 #define MAXMSGSZ 512
 #define TFAIL 8
 #define TCLEANUP 16
-#define TGOSSIP 10
+#define TGOSSIPENTRY 3
 
 /**
  * Message Types
@@ -39,7 +39,7 @@ private:
   Statuses status;
   nodeEntry *prev, *next;
 public:
-  nodeEntry() {};
+  nodeEntry() { setmyhb((long) 0); };
   nodeEntry(char *addr, long hb, long myhb, Statuses status);
   nodeEntry(char **b, long myhb=0) { decode(b); setmyhb(myhb); };
   ~nodeEntry() {};
@@ -52,6 +52,9 @@ public:
   long gethb() { return this->hb; };
   long getmyhb() { return this->myhb; };
   Statuses getstatus() { return this->status; };
+  void setaddr(char *addr) {
+    memcpy(this->addr, addr, sizeof(this->addr));
+  }
   bool sethb(long hb) {
     bool r = (this->hb < hb);
     if(r) this->hb = hb;
@@ -68,13 +71,15 @@ public:
     return this->myhb;
   }
   bool setstatus(Statuses status) {
-    bool r = (this->status == status);
+    bool r = (this->status != status);
     if(r) this->status = status;
     return r;
   }
   char *encode(char **b);
   char *decode(char **b);
   void show();
+  bool isFirst() { return !(this->prev); }
+  bool isLast() { return !(this->next); }
   nodeEntry& operator =(const nodeEntry &anotherNodeEntry);
   bool operator ==(const nodeEntry &anotherNodeEntry);
   bool operator <(const nodeEntry &anotherNodeEntry);
@@ -83,7 +88,7 @@ public:
 
 class Operation {
 private:
-  nodeEntry *peersList, *me;
+  nodeEntry *peersList, *me, *first, *last;
   vector<nodeEntry *> pingList, gossipList;
   size_t recsz;
   char msgBff[MAXMSGSZ];
@@ -92,8 +97,15 @@ public:
   Operation(char *addr, long hb=0, long myhb=0, Statuses status=ALIVE);
   ~Operation() {};
   void destroyPeersList(nodeEntry *n);
+  void destroyPeersList(nodeEntry *n);
   void initPingList();
   char *getHeader(MsgTypes t, char *iAddr=NULL);
+  int updtGossipLst(int n);
+  char *addPayload(char *b);
+  void updatePeersList(nodeEntry *n);
+  void Operations::showPeersList():
+  void Operations::showGossipList();
+/*
   joinreq();
   joinrep();
   ping();
@@ -103,13 +115,13 @@ public:
   pgyping();
   pgypong();
   ipgyping();
-  ipgypong();
+  ipgypong(); */
 };
 
 Operation::Operation(char *addr, long hb=0, long myhb=0, Statuses status=ALIVE) {
   me = new nodeEntry(addr, hb, myhb, status);
   recsz = sizeof(addr)+sizeof(hb)+sizeof(status);
-  peersList = NULL;
+  peersList = first = last = NULL;
 }
 
 void Operation::destroyPeersList(nodeEntry *n) {
@@ -130,9 +142,9 @@ Operation::~Operation() {
 };
 
 void Operation::initPingList() {
-  nodeEntry *n = peersList, *x;
+  nodeEntry *n = this->first;
   random_device rd;
-  while((x = n->getPrev())) n = x;
+  pingList.clear();
   while(n) {
     pingList.push_back(n);
     n = n->next;
@@ -149,7 +161,80 @@ char *Operation::getHeader(MsgTypes t, char *iAddr=NULL) {
   return b;
 }
 
-char *Operation::getPayload(char *b) {
+int Operation::updtGossipLst(int n) {
+  nodeEntry *p, *b;
+  vector<nodeEntry *>::iterator it;
+  int i;
+
+  for(it=gossipList.begin() ; it != gossipList.end(); )
+    if(difftime(timer, *it->tstamp) > TGOSSIPENTRY) it = gossipList.erase(it);
+    else it++;
+
+  p = b = peersList;
+  i = gossipList.size();
+  while(i<n) {
+    if(p->isLast()) p = first;  // reached the end
+    else p = p->getNext();
+    if(p == b) break;           // whole round
+    if(find(gossipList.begin(), gossipList.end(), p)==gossipList.end()) {
+      gossipList.push_back(p);
+      i++;
+    }
+  }
+  peersList = p;
+  if(i>n) i = n;
+
+  return i;
+}
+
+char *Operation::addPayload(char *b) {
+  int n = updtGossipLst(((b - msgBff) / recsz));
+  vector<nodeEntry *>::iterator it;
+
+  memcpy(b, n, sizeof(n)); b += sizeof(n);
+  for(it=gossipList.begin() ; it != gossipList.end(); it++)
+    it->encode(&b);
+  return b;
+}
+
+void Operation::updatePeersList(nodeEntry *n) {
+  nodeEntry *x = NULL;
+  bool gssp = FALSE;
+  if(peersList) x = peersList->find(n->getaddr());
+  if(gssp = (!x)) {
+    x = n;
+    x->setmyhb(me->getmyhb());
+    peersList->add(x);
+    if(x->isFirst()) first = x;
+    if(x->isLast()) last = x;
+  } else {
+    if(gssp = (x->sethb(n->gethb()) || x->setstatus(n->getstatus())))
+      x->setmyhb(me->getmyhb()));
+  }
+  if(gssp) gossipList.insert(gossipList.begin(), x);
+}
+
+void Operations::showPeersList() {
+  nodeEntry *p = first;
+  int i = 0;
+  cout << "\nPeers List ------------------------------------\n"
+  cout << "me: ";
+  me->show();
+  while(p) {
+    cout << i++ << ": ";
+    p->show();
+    p = p->getNext();
+  }
+}
+
+void Operations::showGossipList() {
+  vector<nodeEntry *>::iterator it;
+  int i=0;
+  cout << "\nGossip List ------------------------------------\n"
+  for(it=gossipList.begin() ; it != gossipList.end(); it++) {
+    cout << i++ << ": ";
+    it->show();
+  }
 }
 
 /* ------------------- nodeEntry ----------------------- */
@@ -259,7 +344,7 @@ void nodeEntry::show() {
 nodeEntry& nodeEntry::operator =(const nodeEntry &anotherNodeEntry) {
   memcpy(&this->addr, &anotherNodeEntry.addr, sizeof(this->addr));
   this->hb = anotherNodeEntry.hb;
-  this->myhb = anotherNodeEntry.myhb;
+  this->setmyhb(anotherNodeEntry.myhb);
   this->status = anotherNodeEntry.status;
   this->tstamp = anotherNodeEntry.tstamp;
   this->prev = anotherNodeEntry.prev;
@@ -307,12 +392,12 @@ nodeEntry *test01() {
   char a[6], b[6];
   short port;
   int i;
-  nodeEntry *x, *n = new nodeEntry(getRndAddr(a), (long) 0, (long) 1, ALIVE);
+  nodeEntry *x, *n = new nodeEntry(getRndAddr(a), (long) 1, (long) 1, ALIVE);
 
-  srand (time(NULL));
+  srand(time(NULL));
 
   for (i=0; i<50; i++) {
-    x = new nodeEntry(getRndAddr(a), (long) (i + rand() % 50), (long) i, ALIVE);
+    x = new nodeEntry(getRndAddr(a), (long) (i + rand() % 50), (long) 1, (Statuses) (rand() % 3));
     if(i == 24) memcpy(b, a, sizeof(a));
     n->add(x);
   }
@@ -368,13 +453,32 @@ void test03(nodeEntry *x) {
   delete n;
 }
 
+void test04() {
+  char a[6];
+  Operation *o;
+  nodeEntry *n = new nodeEntry();
+
+  srand(time(NULL));
+  o = new Operation(getRndAddr(a), 1, 1, ALIVE);
+
+  for (i=0; i<50; i++) {
+    n->setaddr(getRndAddr(a));
+    n->sethb((long) (i + rand() % 50));
+    n->setmyhb((long) 1);
+    n->setstatus((Statuses) (rand() % 3));
+    o->updatePeersList(n);
+  }
+
+  o->showPeersList();
+  o->showGossipList();
+  delete o;
+  delete n;
+}
+
 
 int main() {
-  nodeEntry *n;
 
-  n = test01();
-  test03(n);
-  destroyNodeList(n);
+  test04();
 
   return 0;
 }
