@@ -52,6 +52,7 @@ public:
   long gethb() { return this->hb; };
   long getmyhb() { return this->myhb; };
   Statuses getstatus() { return this->status; };
+  time_t gettstamp() { return this->tstamp; };
   void setaddr(char *addr) {
     memcpy(this->addr, addr, sizeof(this->addr));
   }
@@ -89,22 +90,23 @@ public:
 class Operation {
 private:
   nodeEntry *peersList, *me, *first, *last;
-  vector<nodeEntry *> pingList, gossipList;
+  vector<nodeEntry *> pingList, gossipList, newsList;
   size_t recsz;
   char msgBff[MAXMSGSZ];
 public:
   Operation() {};
-  Operation(char *addr, long hb=0, long myhb=0, Statuses status=ALIVE);
-  ~Operation() {};
-  void destroyPeersList(nodeEntry *n);
+  Operation(char *addr, long hb, long myhb, Statuses status);
+  ~Operation();
   void destroyPeersList(nodeEntry *n);
   void initPingList();
   char *getHeader(MsgTypes t, char *iAddr=NULL);
   int updtGossipLst(int n);
-  char *addPayload(char *b);
+  char *addPayload(char **b);
   void updatePeersList(nodeEntry *n);
-  void Operations::showPeersList():
-  void Operations::showGossipList();
+  void showPeersList();
+  void showGossipList();
+  int encode(MsgTypes t, char *h);
+  void decode();
 /*
   joinreq();
   joinrep();
@@ -118,7 +120,7 @@ public:
   ipgypong(); */
 };
 
-Operation::Operation(char *addr, long hb=0, long myhb=0, Statuses status=ALIVE) {
+Operation::Operation(char *addr, long hb, long myhb, Statuses status) {
   me = new nodeEntry(addr, hb, myhb, status);
   recsz = sizeof(addr)+sizeof(hb)+sizeof(status);
   peersList = first = last = NULL;
@@ -126,19 +128,23 @@ Operation::Operation(char *addr, long hb=0, long myhb=0, Statuses status=ALIVE) 
 
 void Operation::destroyPeersList(nodeEntry *n) {
   nodeEntry *x;
-  while((x = n->getPrev())) n = x;
   while((x = n->getNext())) {
     delete n;
     n = x;
   }
-  delete n;
 }
 
 Operation::~Operation() {
-  destroyPeersList(peersList);
+cout << "1.1\n";
+first->show();
+  destroyPeersList(first);
+cout << "1.2\n";
   delete me;
+cout << "1.3\n";
   pingList.clear();
+cout << "1.4\n";
   gossipList.clear();
+cout << "1.5\n";
 };
 
 void Operation::initPingList() {
@@ -147,77 +153,99 @@ void Operation::initPingList() {
   pingList.clear();
   while(n) {
     pingList.push_back(n);
-    n = n->next;
+    n = n->getNext();
   }
   mt19937 generator(rd());
   shuffle(pingList.begin(), pingList.end(), generator);
 }
 
-char *Operation::getHeader(MsgTypes t, char *iAddr=NULL) {
+char *Operation::getHeader(MsgTypes t, char *iAddr) {
   char *b = msgBff;
   memcpy(b, &t, sizeof(t)); b+=sizeof(t);
   me->encode(&b);
-  if(iAddr) memcpy(b, iAddr, sizeof(iAddr)); b+=sizeof(iAddr);
+  if(iAddr) {
+    memcpy(b, iAddr, ADDRSZ);
+    b+=ADDRSZ;
+  }
   return b;
 }
 
 int Operation::updtGossipLst(int n) {
   nodeEntry *p, *b;
   vector<nodeEntry *>::iterator it;
+  time_t now;
   int i;
 
+  time(&now);
   for(it=gossipList.begin() ; it != gossipList.end(); )
-    if(difftime(timer, *it->tstamp) > TGOSSIPENTRY) it = gossipList.erase(it);
+    if(difftime(now, (*it)->gettstamp()) > TGOSSIPENTRY) it = gossipList.erase(it);
     else it++;
 
   p = b = peersList;
-  i = gossipList.size();
-  while(i<n) {
-    if(p->isLast()) p = first;  // reached the end
-    else p = p->getNext();
-    if(p == b) break;           // whole round
-    if(find(gossipList.begin(), gossipList.end(), p)==gossipList.end()) {
-      gossipList.push_back(p);
-      i++;
+  if((i = gossipList.size()) > n) {
+    gossipList.erase(gossipList.begin()+n, gossipList.end());
+    peersList = gossipList.back();
+    i = n;
+  } else {
+    while(i<n) {
+      if(p->isLast()) p = first;  // reached the end
+      else p = p->getNext();
+      if(p == b) break;           // whole round
+      if(find(gossipList.begin(), gossipList.end(), p)==gossipList.end()) {
+        gossipList.push_back(p);
+        i++;
+      }
     }
+    peersList = p;
   }
-  peersList = p;
-  if(i>n) i = n;
+cout << "GossipList Size: " << gossipList.size() << endl;
+cout << "n: " << n << endl;
+cout << "i: " << i << endl;
 
   return i;
 }
 
-char *Operation::addPayload(char *b) {
-  int n = updtGossipLst(((b - msgBff) / recsz));
+char *Operation::addPayload(char **b) {
+  int n = updtGossipLst(((MAXMSGSZ - sizeof(n) - (*b - msgBff)) / recsz));
+int i;
   vector<nodeEntry *>::iterator it;
-
-  memcpy(b, n, sizeof(n)); b += sizeof(n);
-  for(it=gossipList.begin() ; it != gossipList.end(); it++)
-    it->encode(&b);
-  return b;
+cout << "bavail=" << (MAXMSGSZ - (*b - msgBff)) << ", ---payload --------\n";
+cout << "recsz=" << recsz << ", ---payload --------\n";
+cout << "n=" << n << ", ---payload --------\n";
+  memcpy(*b, &n, sizeof(n)); *b += sizeof(n);
+i = 0;
+  for(it=gossipList.begin() ; it != gossipList.end(); it++) {
+    i++;
+    (*it)->encode(b);
+    (*it)->show();
+  }
+cout << "i: " << i << endl;
+  return *b;
 }
 
 void Operation::updatePeersList(nodeEntry *n) {
   nodeEntry *x = NULL;
   bool gssp = FALSE;
   if(peersList) x = peersList->find(n->getaddr());
-  if(gssp = (!x)) {
-    x = n;
+  if((gssp = !x)) {
+    x = new nodeEntry();
+    *x = *n;
     x->setmyhb(me->getmyhb());
-    peersList->add(x);
+    if(peersList) peersList->add(x);
+    else peersList = x;
     if(x->isFirst()) first = x;
     if(x->isLast()) last = x;
   } else {
-    if(gssp = (x->sethb(n->gethb()) || x->setstatus(n->getstatus())))
-      x->setmyhb(me->getmyhb()));
+    if((gssp = x->sethb(n->gethb())) || (x->setstatus(n->getstatus())))
+      x->setmyhb(me->getmyhb());
   }
   if(gssp) gossipList.insert(gossipList.begin(), x);
 }
 
-void Operations::showPeersList() {
+void Operation::showPeersList() {
   nodeEntry *p = first;
   int i = 0;
-  cout << "\nPeers List ------------------------------------\n"
+  cout << "\nPeers List ------------------------------------\n";
   cout << "me: ";
   me->show();
   while(p) {
@@ -227,13 +255,91 @@ void Operations::showPeersList() {
   }
 }
 
-void Operations::showGossipList() {
+void Operation::showGossipList() {
   vector<nodeEntry *>::iterator it;
   int i=0;
-  cout << "\nGossip List ------------------------------------\n"
+  cout << "\nGossip List ------------------------------------\n";
   for(it=gossipList.begin() ; it != gossipList.end(); it++) {
     cout << i++ << ": ";
-    it->show();
+    (*it)->show();
+  }
+}
+
+int Operation::encode(MsgTypes t, char *h) {
+  char *b;
+  b = getHeader(t, h);
+  b = addPayload(&b);
+  return (int ) (b - msgBff);
+}
+
+void Operation::decode() {
+  char *b = msgBff, iAddr[ADDRSZ];
+  bool ind=FALSE, pyld=FALSE;
+  int nr=0, i;
+  MsgTypes t;
+  nodeEntry n;
+  memcpy(&t, b, sizeof(t)); b+=sizeof(t);
+  switch(t) {
+    case JOINREQ:
+      cout << "JOINREQ, ";
+      pyld = TRUE;
+      break;
+    case JOINREP:
+      cout << "JOINREP, ";
+      break;
+    case PING:
+      cout << "PING, ";
+      break;
+    case PONG:
+      cout << "PONG, ";
+      break;
+    case IPING:
+      cout << "IPING, ";
+      ind = TRUE;
+      break;
+    case IPONG:
+      cout << "IPONG, ";
+      ind = TRUE;
+      break;
+    case PGYPING:
+      cout << "PGYPING, ";
+      pyld = TRUE;
+      break;
+    case PGYPONG:
+      cout << "PGYPONG, ";
+      pyld = TRUE;
+      break;
+    case IPGYPING:
+      cout << "IPGYPING, ";
+      ind = TRUE;
+      pyld = TRUE;
+      break;
+    case IPGYPONG:
+      cout << "IPGYPONG, ";
+      ind = TRUE;
+      pyld = TRUE;
+      break;
+    default:
+      cout << "Wrong MSG Code";
+      break;
+  }
+  n.decode(&b);
+  n.show();
+  if(ind) {
+    memcpy(iAddr, b, ADDRSZ); b+=ADDRSZ;
+    printf("Indirect -> %u.%u.%u.%u:%u\n",
+                               (unsigned char) iAddr[0],
+                               (unsigned char) iAddr[1],
+                               (unsigned char) iAddr[2],
+                               (unsigned char) iAddr[3],
+                               (unsigned short) iAddr[4]);
+  }
+  if(pyld) {
+    memcpy(&nr, b, sizeof(nr)); b+=sizeof(nr);
+    for(i=0; i<nr; i++) {
+      n.decode(&b);
+      n.show();
+    }
   }
 }
 
@@ -290,12 +396,16 @@ nodeEntry *nodeEntry::find(char *addr) {
   int i = memcmp(this->addr, addr, sizeof(this->addr));
   if(!i) return this;
   if(i > 0) {
-    if(this->prev) return this->prev->find(addr);
-    else return NULL;
+    if(this->prev) {
+      if(memcmp(this->prev->addr, addr, sizeof(this->addr)) < 0) return NULL;
+      else return this->prev->find(addr);
+    } else return NULL;
   }
   if(i < 0) {
-    if(this->next) return this->next->find(addr);
-    else return NULL;
+    if(this->next) {
+      if(memcmp(this->next->addr, addr, sizeof(this->addr)) > 0) return NULL;
+      else return this->next->find(addr);
+    } else return NULL;
   }
   return NULL;
 }
@@ -328,21 +438,19 @@ char *nodeEntry::decode(char **b) {
 }
 
 void nodeEntry::show() {
-  short port;
-  time_t timer;
-  memcpy(&port, &addr[4], sizeof(port));
-  printf("%u.%u.%u.%u:%u, hb=%ld, myhb=%ld, st=%d, elapt=%.f\n",
+  time_t now = time(NULL);
+  printf("%u.%u.%u.%u:%u, hb=%ld, myhb=%ld, st=%d, elapt=%.00e\n",
                              (unsigned char) addr[0],
                              (unsigned char) addr[1],
                              (unsigned char) addr[2],
                              (unsigned char) addr[3],
-                             (unsigned short) port,
-                             difftime(timer, tstamp),
-                             hb, myhb, status);
+                             (unsigned short) addr[4],
+                             hb, myhb, status,
+                             difftime(now, tstamp));
 }
 
 nodeEntry& nodeEntry::operator =(const nodeEntry &anotherNodeEntry) {
-  memcpy(&this->addr, &anotherNodeEntry.addr, sizeof(this->addr));
+  memcpy(this->addr, anotherNodeEntry.addr, sizeof(this->addr));
   this->hb = anotherNodeEntry.hb;
   this->setmyhb(anotherNodeEntry.myhb);
   this->status = anotherNodeEntry.status;
@@ -371,7 +479,7 @@ bool nodeEntry::operator >(const nodeEntry& anotherNodeEntry) {
 char *getRndAddr(char *r) {
   int i;
 
-  for(i=0; i<6; i++) r[i] = rand() % 255;
+  for(i=0; i<ADDRSZ; i++) r[i] = rand() % 255;
   return r;
 }
 
@@ -389,8 +497,7 @@ void showList(nodeEntry *n) {
 }
 
 nodeEntry *test01() {
-  char a[6], b[6];
-  short port;
+  char a[ADDRSZ], b[ADDRSZ];
   int i;
   nodeEntry *x, *n = new nodeEntry(getRndAddr(a), (long) 1, (long) 1, ALIVE);
 
@@ -405,12 +512,11 @@ nodeEntry *test01() {
   showList(n);
 
   cout << endl;
-  memcpy(&port, &b[4], sizeof(port));
   printf("%u.%u.%u.%u:%u\n", (unsigned char) b[0],
                              (unsigned char) b[1],
                              (unsigned char) b[2],
                              (unsigned char) b[3],
-                             (unsigned short) port);
+                             (unsigned short) b[4]);
   x = n->find(b);
   x->show();
   n->show();
@@ -454,9 +560,10 @@ void test03(nodeEntry *x) {
 }
 
 void test04() {
-  char a[6];
+  char a[ADDRSZ], iAddr[ADDRSZ];
   Operation *o;
   nodeEntry *n = new nodeEntry();
+  int i;
 
   srand(time(NULL));
   o = new Operation(getRndAddr(a), 1, 1, ALIVE);
@@ -468,11 +575,22 @@ void test04() {
     n->setstatus((Statuses) (rand() % 3));
     o->updatePeersList(n);
   }
-
   o->showPeersList();
   o->showGossipList();
+
+  cout << "Encode / Decode ---------------------------\n";
+  strncpy(iAddr, "dummy-", 6);
+  o->encode(IPGYPING, iAddr);
+  o->decode();
+
+  cout << "\n\nPeers after ---------------------------\n";
+
+  o->showPeersList();
+cout << "sali 1\n";
   delete o;
+cout << "sali 2\n";
   delete n;
+cout << "sali 3\n";
 }
 
 
