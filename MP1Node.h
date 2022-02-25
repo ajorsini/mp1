@@ -130,12 +130,15 @@ public:
 class Operation {
 private:
   nodeEntry *peersList, *me, *first, *last;
+  EmulNet *emulNet;
   vector<nodeEntry *> pingList, gossipList, newsList;
-  size_t recsz;
+  size_t recsz, msgSz;
   char msgBff[MAXMSGSZ];
+  Address *from, *to;
+
 public:
   Operation() {};
-  Operation(char *addr, long hb, long myhb, Statuses status);
+  Operation(char *addr, long hb, long myhb, Statuses status, EmulNet *emul);
   ~Operation();
   void destroyPeersList(nodeEntry *n);
   void initPingList();
@@ -143,9 +146,13 @@ public:
   int updtGossipLst(int n);
   char *addPayload(char **b);
   void updatePeersList(nodeEntry *n);
+  Address *getToAddress(char *a) {
+  	memcpy(to->addr, a, sizeof(to->addr));
+  	return to;
+  };
   void showPeersList();
   void showGossipList();
-  int encode(MsgTypes t, char *h);
+  size_t encode(MsgTypes t, char *iAddr=NULL);
   void decode();
 };
 
@@ -163,6 +170,7 @@ private:
 	Params *par;
 	Member *memberNode;
 	char NULLADDR[6];
+  Operation *op;
 
 public:
 	MP1Node(Member *, Params *, EmulNet *, Log *, Address *);

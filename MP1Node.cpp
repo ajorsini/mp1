@@ -25,12 +25,13 @@ MP1Node::MP1Node(Member *member, Params *params, EmulNet *emul, Log *log, Addres
 	this->log = log;
 	this->par = params;
 	this->memberNode->addr = *address;
+	this->op = NULL;
 }
 
 /**
  * Destructor of the MP1Node class
  */
-MP1Node::~MP1Node() {}
+MP1Node::~MP1Node() { if(op) delete op; }
 
 /**
  * FUNCTION NAME: recvLoop
@@ -107,9 +108,10 @@ int MP1Node::initThisNode(Address *joinaddr) {
 	memberNode->heartbeat = 0;
 	memberNode->pingCounter = TFAIL;
 	memberNode->timeOutCounter = -1;
-    initMemberListTable(memberNode);
+  op = new Operation(memberNode->addr.addr, (long) 0, (long) 0, ALIVE);
+  initMemberListTable(memberNode);
 
-    return 0;
+  return 0;
 }
 
 /**
@@ -419,10 +421,14 @@ bool nodeEntry::operator >(const nodeEntry& anotherNodeEntry) {
 
 /* ------------------------- op.cpp ------------------------------ */
 
-Operation::Operation(char *addr, long hb, long myhb, Statuses status) {
-  me = new nodeEntry(addr, hb, myhb, status);
-  recsz = sizeof(addr)+sizeof(hb)+sizeof(status);
-  peersList = first = last = NULL;
+Operation::Operation(char *addr, long hb, long myhb, Statuses status, EmulNet *emul) {
+  this->me = new nodeEntry(addr, hb, myhb, status);
+  this->recsz = sizeof(addr)+sizeof(hb)+sizeof(status);
+  this->peersList = this->first = this->last = NULL;
+	this->emulNet = emul;
+	this->from = new Address;
+	this->to = new Address;
+	this->me->getAddress(this->from);
 }
 
 void Operation::destroyPeersList(nodeEntry *n) {
@@ -438,6 +444,8 @@ Operation::~Operation() {
   delete me;
   pingList.clear();
   gossipList.clear();
+	if(from) delete from;
+	if(to) delete to;
 }
 
 void Operation::initPingList() {
@@ -558,65 +566,75 @@ void Operation::showGossipList() {
   }
 }
 
-int Operation::encode(MsgTypes t, char *h) {
+size_t Operation::encode(MsgTypes t, char *iAddr=NULL) {
   char *b;
-  b = getHeader(t, h);
-  b = addPayload(&b);
-  return (int ) (b - msgBff);
+
+  b = getHeader(t, iAddr);
+	switch(t) {
+    case JOINREP:
+    case PGYPING:
+    case PGYPONG:
+    case IPGYPING:
+    case IPGYPONG:
+      b = addPayload(&b);
+      break;
+    default:
+      break;
+  }
+	msgSz = (size_t) (b - msgBff);
+  return msgSz;
 }
 
 void Operation::decode() {
   char *b = msgBff, iAddr[ADDRSZ];
-  bool ind=FALSE, pyld=FALSE;
+  bool pyld=FALSE;
   int nr=0, i;
   MsgTypes t;
   nodeEntry n;
+
   memcpy(&t, b, sizeof(t)); b+=sizeof(t);
+	n.decode(&b);
   switch(t) {
-    case JOINREQ:
-      cout << "JOINREQ, ";
-      pyld = TRUE;
-      break;
-    case JOINREP:
-      cout << "JOINREP, ";
-      break;
+		case JOINREQ:
+		  encode(JOINREP);
+			emulNet->ENsend(from, getToAddress(n.addr), msgBff, msgSz);
+		  break;
     case PING:
-      cout << "PING, ";
-      break;
+			encode(PONG);
+			emulNet->ENsend(from, getToAddress(n.addr), msgBff, msgSz);
+			break;
     case PONG:
-      cout << "PONG, ";
       break;
     case IPING:
-      cout << "IPING, ";
-      ind = TRUE;
-      break;
+			memcpy(iAddr, b, ADDRSZ); b+=ADDRSZ;
+			encode(IPONG, n.addr);
+			emulNet->ENsend(from, getToAddress(iAddr), msgBff, msgSz);
+			break;
     case IPONG:
-      cout << "IPONG, ";
-      ind = TRUE;
+		  memcpy(iAddr, b, ADDRSZ); b+=ADDRSZ;
+			encode(PONG);
+      emulNet->ENsend(from, getToAddress(iAddr), msgBff, msgSz);
       break;
     case PGYPING:
-      cout << "PGYPING, ";
-      pyld = TRUE;
-      break;
+			encode(PGYPONG);
+			emulNet->ENsend(from, getToAddress(n.addr), msgBff, msgSz);
+		case JOINREP:
     case PGYPONG:
-      cout << "PGYPONG, ";
       pyld = TRUE;
       break;
     case IPGYPING:
-      cout << "IPGYPING, ";
-      ind = TRUE;
-      pyld = TRUE;
-      break;
+			memcpy(iAddr, b, ADDRSZ); b+=ADDRSZ;
+			encode(IPGYPONG, n.addr);
+			emulNet->ENsend(from, getToAddress(iAddr), msgBff, msgSz);
+			pyld = TRUE;
+			break;
     case IPGYPONG:
-      cout << "IPGYPONG, ";
-      ind = TRUE;
+			memcpy(iAddr, b, ADDRSZ); b+=ADDRSZ;
+			encode(PGYPONG);
+			emulNet->ENsend(from, getToAddress(iAddr), msgBff, msgSz);
       pyld = TRUE;
-      break;
-    default:
-      cout << "Wrong MSG Code";
       break;
   }
-  n.decode(&b);
   n.show();
   if(ind) {
     memcpy(iAddr, b, ADDRSZ); b+=ADDRSZ;
