@@ -17,7 +17,7 @@
  * is necessary for your logic to work
  */
 MP1Node::MP1Node(Member *member, Params *params, EmulNet *emul, Log *log, Address *address) {
-	for( int i = 0; i < 6; i++ ) {
+	for( int i = 0; i < ADDRSZ; i++ ) {
 		NULLADDR[i] = 0;
 	}
 	this->memberNode = member;
@@ -96,9 +96,9 @@ void MP1Node::nodeStart(char *servaddrstr, short servport) {
 int MP1Node::initThisNode(Address *joinaddr) {
 	/*
 	 * This function is partially implemented and may require changes
-	 */
 	int id = *(int*)(&memberNode->addr.addr);
 	int port = *(short*)(&memberNode->addr.addr[4]);
+	*/
 
 	memberNode->bFailed = false;
 	memberNode->inited = true;
@@ -108,7 +108,7 @@ int MP1Node::initThisNode(Address *joinaddr) {
 	memberNode->heartbeat = 0;
 	memberNode->pingCounter = TFAIL;
 	memberNode->timeOutCounter = -1;
-  op = new Operation(memberNode->addr.addr, (long) 0, (long) 0, ALIVE);
+  op = new Operation(memberNode->addr.addr, (long) 0, (long) 0, ALIVE, emulNet, par, log);
   initMemberListTable(memberNode);
 
   return 0;
@@ -120,7 +120,6 @@ int MP1Node::initThisNode(Address *joinaddr) {
  * DESCRIPTION: Join the distributed system
  */
 int MP1Node::introduceSelfToGroup(Address *joinaddr) {
-	MessageHdr *msg;
 #ifdef DEBUGLOG
     static char s[1024];
 #endif
@@ -133,27 +132,14 @@ int MP1Node::introduceSelfToGroup(Address *joinaddr) {
         memberNode->inGroup = true;
     }
     else {
-        size_t msgsize = sizeof(MessageHdr) + sizeof(joinaddr->addr) + sizeof(long) + 1;
-        msg = (MessageHdr *) malloc(msgsize * sizeof(char));
-
-        // create JOINREQ message: format of data is {struct Address myaddr}
-        msg->msgType = JOINREQ;
-        memcpy((char *)(msg+1), &memberNode->addr.addr, sizeof(memberNode->addr.addr));
-        memcpy((char *)(msg+1) + 1 + sizeof(memberNode->addr.addr), &memberNode->heartbeat, sizeof(long));
-
+		  op->encode(JOINREQ);
 #ifdef DEBUGLOG
-        sprintf(s, "Trying to join...");
-        log->LOG(&memberNode->addr, s);
+      sprintf(s, "Trying to join...");
+      log->LOG(&memberNode->addr, s);
 #endif
-
-        // send JOINREQ message to introducer member
-        emulNet->ENsend(&memberNode->addr, joinaddr, (char *)msg, msgsize);
-
-        free(msg);
+      op->send(joinaddr->addr);
     }
-
     return 1;
-
 }
 
 /**
@@ -161,10 +147,23 @@ int MP1Node::introduceSelfToGroup(Address *joinaddr) {
  *
  * DESCRIPTION: Wind up this node and clean up state
  */
-int MP1Node::finishUpThisNode(){
-   /*
-    * Your code goes here
-    */
+int MP1Node::finishUpThisNode() {
+#ifdef DEBUGLOG
+    static char s[1024];
+    sprintf(s, "Leaving the group...");
+    log->LOG(&memberNode->addr, s);
+#endif
+	memberNode->bFailed = true;
+	memberNode->inited = false;
+	memberNode->inGroup = false;
+    // node is down!
+	memberNode->nnb = 0;
+	memberNode->heartbeat = 0;
+	memberNode->pingCounter = TFAIL;
+	memberNode->timeOutCounter = -1;
+	delete op;
+	op = NULL;
+	return 0;
 }
 
 /**
@@ -174,6 +173,7 @@ int MP1Node::finishUpThisNode(){
  * 				Check your messages in queue and perform membership protocol duties
  */
 void MP1Node::nodeLoop() {
+
     if (memberNode->bFailed) {
     	return;
     }
@@ -199,15 +199,15 @@ void MP1Node::nodeLoop() {
  */
 void MP1Node::checkMessages() {
     void *ptr;
-    int size;
-
+		MsgTypes r;
     // Pop waiting messages from memberNode's mp1q
     while ( !memberNode->mp1q.empty() ) {
     	ptr = memberNode->mp1q.front().elt;
-    	size = memberNode->mp1q.front().size;
     	memberNode->mp1q.pop();
-    	recvCallBack((void *)memberNode, (char *)ptr, size);
+			if((r = op->decode((char *) ptr)) == LEAVE)
+			  break;
     }
+		if(r == LEAVE) finishUpThisNode();
     return;
 }
 
@@ -215,12 +215,12 @@ void MP1Node::checkMessages() {
  * FUNCTION NAME: recvCallBack
  *
  * DESCRIPTION: Message handler for different message types
- */
+
 bool MP1Node::recvCallBack(void *env, char *data, int size ) {
-	/*
-	 * Your code goes here
-	 */
+  if(op->decode(data) == LEAVE)
+	  finishUpThisNode();
 }
+*/
 
 /**
  * FUNCTION NAME: nodeLoopOps
@@ -230,12 +230,35 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
  * 				Propagate your membership list
  */
 void MP1Node::nodeLoopOps() {
+	vector<nodeEntry *> pl;
+	vector<nodeEntry *>::iterator it;
+	Statuses st;
+	char *iAddr;
+	int d;
 
-	/*
-	 * Your code goes here
-	 */
+  op->statusEval();
 
-    return;
+  op->initPingList();
+	op->encode(PGYPING);
+  pl = op->getpingList();
+  for(it=pl.begin(); it != pl.end(); it++) {
+		st = (*it)->getstatus();
+		if(st == DEAD) continue;
+		op->send((*it)->getaddr());
+		if(st == SUSPECT) {
+			if(d == 0) {
+				d = 3;
+				iAddr = (*it)->getaddr();
+				op->encode(IPGYPING, iAddr);
+			} else
+			  d--;
+		}
+		if(st == ALIVE) {
+			if(d > 0)
+				if(--d == 0) op->encode(PGYPING);
+		}
+	}
+  return;
 }
 
 /**
@@ -255,7 +278,7 @@ int MP1Node::isNullAddress(Address *addr) {
 Address MP1Node::getJoinAddress() {
     Address joinaddr;
 
-    memset(&joinaddr, 0, sizeof(Address));
+    memset(&joinaddr.addr, 0, sizeof(joinaddr.addr));
     *(int *)(&joinaddr.addr) = 1;
     *(short *)(&joinaddr.addr[4]) = 0;
 
@@ -290,7 +313,8 @@ void MP1Node::printAddress(Address *addr)
 
 /* ------------------------- node.cpp ------------------------------ */
 
-nodeEntry::nodeEntry(char *addr, long hb, long myhb, Statuses status) {
+nodeEntry::nodeEntry(char *addr, long hb, long myhb, Statuses status, Params *par) {
+	this->par = par;
   memcpy(this->addr, addr, sizeof(this->addr));
   this->hb = hb;
   setmyhb(myhb);
@@ -372,34 +396,36 @@ char *nodeEntry::encode(char **b) {
   return *b;
 }
 
-char *nodeEntry::decode(char **b) {
+char *nodeEntry::decode(char **b, Params *par) {
   memcpy(this->addr, *b, sizeof(this->addr));
   *b += sizeof(this->addr);
   memcpy(&this->hb, *b, sizeof(this->hb));
   *b += sizeof(this->hb);
   memcpy(&this->status, *b, sizeof(this->status));
   *b += sizeof(this->status);
+	this->par = par;
+	this->prev = this->next = NULL;
   return *b;
 }
 
 void nodeEntry::show() {
-  time_t now = time(NULL);
-  printf("%u.%u.%u.%u:%u, hb=%ld, myhb=%ld, st=%d, elapt=%.00e\n",
+  printf("%u.%u.%u.%u:%u, hb=%ld, myhb=%ld, st=%d, elapt=%d\n",
                              (unsigned char) addr[0],
                              (unsigned char) addr[1],
                              (unsigned char) addr[2],
                              (unsigned char) addr[3],
                              (unsigned short) addr[4],
                              hb, myhb, status,
-                             difftime(now, tstamp));
+                             getElapsedt());
 }
 
 nodeEntry& nodeEntry::operator =(const nodeEntry &anotherNodeEntry) {
   memcpy(this->addr, anotherNodeEntry.addr, sizeof(this->addr));
   this->hb = anotherNodeEntry.hb;
-  this->setmyhb(anotherNodeEntry.myhb);
+  this->myhb = anotherNodeEntry.myhb;
   this->status = anotherNodeEntry.status;
   this->tstamp = anotherNodeEntry.tstamp;
+	this->par = anotherNodeEntry.par;
   this->prev = anotherNodeEntry.prev;
   this->next = anotherNodeEntry.next;
   return *this;
@@ -421,11 +447,13 @@ bool nodeEntry::operator >(const nodeEntry& anotherNodeEntry) {
 
 /* ------------------------- op.cpp ------------------------------ */
 
-Operation::Operation(char *addr, long hb, long myhb, Statuses status, EmulNet *emul) {
-  this->me = new nodeEntry(addr, hb, myhb, status);
+Operation::Operation(char *addr, long hb, long myhb, Statuses status, EmulNet *emulNet, Params *par, Log *log) {
+  this->me = new nodeEntry(addr, hb, myhb, status, par);
   this->recsz = sizeof(addr)+sizeof(hb)+sizeof(status);
   this->peersList = this->first = this->last = NULL;
-	this->emulNet = emul;
+	this->emulNet = emulNet;
+	this->par = par;
+	this->log = log;
 	this->from = new Address;
 	this->to = new Address;
 	this->me->getAddress(this->from);
@@ -474,14 +502,12 @@ char *Operation::getHeader(MsgTypes t, char *iAddr) {
 int Operation::updtGossipLst(int n) {
   nodeEntry *p, *b;
   vector<nodeEntry *>::iterator it;
-  time_t now;
   int i;
 
-  time(&now);
   for(it=gossipList.begin() ; it != gossipList.end(); )
-    if(difftime(now, (*it)->gettstamp()) > TGOSSIPENTRY) it = gossipList.erase(it);
+    if((*it)->getElapsedt() > TGOSSIPENTRY) it = gossipList.erase(it);
     else it++;
-
+  if(!peersList) return 0;
   p = b = peersList;
   if((i = gossipList.size()) > n) {
     gossipList.erase(gossipList.begin()+n, gossipList.end());
@@ -489,7 +515,7 @@ int Operation::updtGossipLst(int n) {
     i = n;
   } else {
     while(i<n) {
-      if(p->isLast()) p = first;  // reached the end
+      if(p->isLast()) p = first; // reached the end
       else p = p->getNext();
       if(p == b) break;           // whole round
       if(find(gossipList.begin(), gossipList.end(), p)==gossipList.end()) {
@@ -499,34 +525,23 @@ int Operation::updtGossipLst(int n) {
     }
     peersList = p;
   }
-cout << "GossipList Size: " << gossipList.size() << endl;
-cout << "n: " << n << endl;
-cout << "i: " << i << endl;
 
   return i;
 }
 
 char *Operation::addPayload(char **b) {
   int n = updtGossipLst(((MAXMSGSZ - sizeof(n) - (*b - msgBff)) / recsz));
-int i;
   vector<nodeEntry *>::iterator it;
-cout << "bavail=" << (MAXMSGSZ - (*b - msgBff)) << ", ---payload --------\n";
-cout << "recsz=" << recsz << ", ---payload --------\n";
-cout << "n=" << n << ", ---payload --------\n";
   memcpy(*b, &n, sizeof(n)); *b += sizeof(n);
-i = 0;
-  for(it=gossipList.begin() ; it != gossipList.end(); it++) {
-    i++;
+  for(it=gossipList.begin() ; it != gossipList.end(); it++)
     (*it)->encode(b);
-    (*it)->show();
-  }
-cout << "i: " << i << endl;
   return *b;
 }
 
 void Operation::updatePeersList(nodeEntry *n) {
   nodeEntry *x = NULL;
   bool gssp = FALSE;
+	Address a, b;
   if(peersList) x = peersList->find(n->getaddr());
   if((gssp = !x)) {
     x = new nodeEntry();
@@ -536,9 +551,14 @@ void Operation::updatePeersList(nodeEntry *n) {
     else peersList = x;
     if(x->isFirst()) first = x;
     if(x->isLast()) last = x;
+		log->logNodeAdd(me->getAddress(&a), n->getAddress(&b));
   } else {
-    if((gssp = x->sethb(n->gethb())) || (x->setstatus(n->getstatus())))
-      x->setmyhb(me->getmyhb());
+    if((gssp = x->sethb(n->gethb()))) {
+			x->setstatus(n->getstatus());
+			x->setmyhb(me->getmyhb());
+			if(n->getstatus() == DEAD)
+				log->logNodeRemove(me->getAddress(&a), n->getAddress(&b));
+		}
   }
   if(gssp) gossipList.insert(gossipList.begin(), x);
 }
@@ -566,7 +586,7 @@ void Operation::showGossipList() {
   }
 }
 
-size_t Operation::encode(MsgTypes t, char *iAddr=NULL) {
+size_t Operation::encode(MsgTypes t, char *iAddr) {
   char *b;
 
   b = getHeader(t, iAddr);
@@ -585,73 +605,103 @@ size_t Operation::encode(MsgTypes t, char *iAddr=NULL) {
   return msgSz;
 }
 
-void Operation::decode() {
-  char *b = msgBff, iAddr[ADDRSZ];
+MsgTypes Operation::decode(char *iMsg) {
+  char *b = iMsg, iAddr[ADDRSZ];
   bool pyld=FALSE;
   int nr=0, i;
   MsgTypes t;
-  nodeEntry n;
+  nodeEntry n, l;
+	Address x, y;
 
   memcpy(&t, b, sizeof(t)); b+=sizeof(t);
-	n.decode(&b);
+	n.decode(&b, par);
   switch(t) {
 		case JOINREQ:
 		  encode(JOINREP);
-			emulNet->ENsend(from, getToAddress(n.addr), msgBff, msgSz);
+			send(n.getaddr());
 		  break;
     case PING:
 			encode(PONG);
-			emulNet->ENsend(from, getToAddress(n.addr), msgBff, msgSz);
+			send(n.getaddr());
 			break;
     case PONG:
       break;
     case IPING:
 			memcpy(iAddr, b, ADDRSZ); b+=ADDRSZ;
-			encode(IPONG, n.addr);
-			emulNet->ENsend(from, getToAddress(iAddr), msgBff, msgSz);
+			encode(IPONG, n.getaddr());
+			send(iAddr);
 			break;
     case IPONG:
 		  memcpy(iAddr, b, ADDRSZ); b+=ADDRSZ;
 			encode(PONG);
-      emulNet->ENsend(from, getToAddress(iAddr), msgBff, msgSz);
+			send(iAddr);
       break;
     case PGYPING:
 			encode(PGYPONG);
-			emulNet->ENsend(from, getToAddress(n.addr), msgBff, msgSz);
+			send(n.getaddr());
 		case JOINREP:
     case PGYPONG:
       pyld = TRUE;
       break;
     case IPGYPING:
 			memcpy(iAddr, b, ADDRSZ); b+=ADDRSZ;
-			encode(IPGYPONG, n.addr);
-			emulNet->ENsend(from, getToAddress(iAddr), msgBff, msgSz);
+			encode(IPGYPONG, n.getaddr());
+			send(iAddr);
 			pyld = TRUE;
 			break;
     case IPGYPONG:
 			memcpy(iAddr, b, ADDRSZ); b+=ADDRSZ;
 			encode(PGYPONG);
-			emulNet->ENsend(from, getToAddress(iAddr), msgBff, msgSz);
+			send(iAddr);
       pyld = TRUE;
       break;
+		default:
+		  break;
   }
-  n.show();
-  if(ind) {
-    memcpy(iAddr, b, ADDRSZ); b+=ADDRSZ;
-    printf("Indirect -> %u.%u.%u.%u:%u\n",
-                               (unsigned char) iAddr[0],
-                               (unsigned char) iAddr[1],
-                               (unsigned char) iAddr[2],
-                               (unsigned char) iAddr[3],
-                               (unsigned short) iAddr[4]);
-  }
+	updatePeersList(&n);
   if(pyld) {
     memcpy(&nr, b, sizeof(nr)); b+=sizeof(nr);
     for(i=0; i<nr; i++) {
-      n.decode(&b);
-      n.show();
+      l.decode(&b, par);
+			if(l == *me) {
+				switch(l.getstatus()) {
+					case SUSPECT:     // I'm suspected!
+						encode(PING);
+						send(n.getaddr());
+					  break;
+					case DEAD:        // I'm dead!
+					  t = LEAVE;
+					  log->logNodeRemove(me->getAddress(&x), l.getAddress(&y));
+						break;
+					default:
+					  break;
+				}
+				if(t == LEAVE) break;
+			} else {
+      	updatePeersList(&l);
+      }
     }
   }
+	return t;
+}
+
+void Operation::statusEval() {
+	nodeEntry *n = this->first;
+	Address a, b;
+	while(n) {
+		if(n->getstatus() == DEAD) continue;
+		if(n->getElapsedt() >= TFAIL) {
+			if(n->getElapsedt() >= TREMOVE) {
+				n->setstatus(DEAD);
+				log->logNodeRemove(me->getAddress(&a), n->getAddress(&b));
+			} else {
+				n->setstatus(SUSPECT);
+			}
+			n->setmyhb(me->getmyhb());
+			gossipList.insert(gossipList.begin(), n);
+		}
+		n = n->getNext();
+	}
 }
 
 /* ----------------------- end op.cpp ---------------------------- */

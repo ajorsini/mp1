@@ -21,6 +21,12 @@
  */
 #define TREMOVE 20
 #define TFAIL 5
+#define TGOSSIPENTRY 3
+#define ADDRSZ 6
+#define FALSE 0
+#define TRUE 1
+#define MAXMSGSZ 512
+
 
 /*
  * Note: You can change/add any functions in MP1Node.{h,cpp}
@@ -58,7 +64,8 @@ enum MsgTypes {
     PGYPING,
     PGYPONG,
     IPGYPING,
-    IPGYPONG
+    IPGYPONG,
+    LEAVE
 };
 
 typedef enum Statuses {
@@ -71,13 +78,14 @@ class nodeEntry {
 private:
   char addr[ADDRSZ];
   long hb, myhb;
-  time_t tstamp;
+  int tstamp;
   Statuses status;
+  Params *par;
   nodeEntry *prev, *next;
 public:
-  nodeEntry() { setmyhb((long) 0); };
-  nodeEntry(char *addr, long hb, long myhb, Statuses status);
-  nodeEntry(char **b, long myhb=0) { decode(b); setmyhb(myhb); };
+  nodeEntry() {};
+  nodeEntry(char *addr, long hb, long myhb, Statuses status, Params *par);
+  nodeEntry(char **b, Params *par, long myhb=0) { decode(b, par); setmyhb(myhb); };
   ~nodeEntry() {};
   nodeEntry *add(nodeEntry *i);
   nodeEntry *find(char *addr);
@@ -92,7 +100,8 @@ public:
   long gethb() { return this->hb; };
   long getmyhb() { return this->myhb; };
   Statuses getstatus() { return this->status; };
-  time_t gettstamp() { return this->tstamp; };
+  int gettstamp() { return this->tstamp; };
+  int getElapsedt() { return (par->getcurrtime() - this->tstamp); };
   void setaddr(char *addr) {
     memcpy(this->addr, addr, sizeof(this->addr));
   }
@@ -103,12 +112,12 @@ public:
   }
   bool setmyhb(long myhb) {
     this->myhb = myhb;
-    time(&this->tstamp);
+    this->tstamp = par->getcurrtime();
     return TRUE;
   }
   long myhbinc() {
     this->myhb++;
-    time(&this->tstamp);
+    this->tstamp = par->getcurrtime();
     return this->myhb;
   }
   bool setstatus(Statuses status) {
@@ -117,10 +126,10 @@ public:
     return r;
   }
   char *encode(char **b);
-  char *decode(char **b);
+  char *decode(char **b, Params *par);
   void show();
-  bool isFirst() { return !(this->prev); }
-  bool isLast() { return !(this->next); }
+  bool isFirst() { return !this->prev; }
+  bool isLast() { return !this->next; }
   nodeEntry& operator =(const nodeEntry &anotherNodeEntry);
   bool operator ==(const nodeEntry &anotherNodeEntry);
   bool operator <(const nodeEntry &anotherNodeEntry);
@@ -131,14 +140,16 @@ class Operation {
 private:
   nodeEntry *peersList, *me, *first, *last;
   EmulNet *emulNet;
-  vector<nodeEntry *> pingList, gossipList, newsList;
+  vector<nodeEntry *> pingList, gossipList;
   size_t recsz, msgSz;
   char msgBff[MAXMSGSZ];
   Address *from, *to;
+  Params *par;
+  Log *log;
 
 public:
   Operation() {};
-  Operation(char *addr, long hb, long myhb, Statuses status, EmulNet *emul);
+  Operation(char *addr, long hb, long myhb, Statuses status, EmulNet *emulNet, Params *par, Log *log);
   ~Operation();
   void destroyPeersList(nodeEntry *n);
   void initPingList();
@@ -152,8 +163,14 @@ public:
   };
   void showPeersList();
   void showGossipList();
+  void statusEval();
   size_t encode(MsgTypes t, char *iAddr=NULL);
-  void decode();
+  MsgTypes decode(char *iMsg);
+  void send(char *addr) {
+    emulNet->ENsend(from, getToAddress(addr), msgBff, msgSz);
+  };
+  vector<nodeEntry *> getpingList() { return pingList; };
+  vector<nodeEntry *> getgossipList() { return gossipList; };
 };
 
 /* ------------------------------- end myClasses ---------------------------- */
@@ -169,7 +186,7 @@ private:
 	Log *log;
 	Params *par;
 	Member *memberNode;
-	char NULLADDR[6];
+	char NULLADDR[ADDRSZ];
   Operation *op;
 
 public:

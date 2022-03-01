@@ -62,9 +62,11 @@ Application::Application(char *infile) {
 		Address *addressOfMemberNode = new Address();
 		Address joinaddr;
 		joinaddr = getjoinaddr();
+
 		addressOfMemberNode = (Address *) en->ENinit(addressOfMemberNode, par->PORTNUM);
 		mp1[i] = new MP1Node(memberNode, par, en, log, addressOfMemberNode);
 		log->LOG(&(mp1[i]->getMemberNode()->addr), "APP");
+
 		delete addressOfMemberNode;
 	}
 }
@@ -123,7 +125,6 @@ void Application::mp1Run() {
 
 	// For all the nodes in the system
 	for( i = 0; i <= par->EN_GPSZ-1; i++) {
-
 		/*
 		 * Receive messages from the network and queue them in the membership protocol queue
 		 */
@@ -136,12 +137,11 @@ void Application::mp1Run() {
 
 	// For all the nodes in the system
 	for( i = par->EN_GPSZ - 1; i >= 0; i-- ) {
-
 		/*
 		 * Introduce nodes into the distributed system
 		 */
 		if( par->getcurrtime() == (int)(par->STEP_RATE*i) ) {
-			// introduce the ith node into the system at time STEPRATE*i
+		// introduce the ith node into the system at time STEPRATE*i
 			mp1[i]->nodeStart(JOINADDR, par->PORTNUM);
 			cout<<i<<"-th introduced node is assigned with the address: "<<mp1[i]->getMemberNode()->addr.getAddress() << endl;
 			nodeCount += i;
