@@ -107,17 +107,18 @@ public:
   }
   bool sethb(long hb) {
     bool r = (this->hb < hb);
-    if(r) this->hb = hb;
+    if(r) {
+      this->hb = hb;
+      this->tstamp = par->getcurrtime();
+    }
     return r;
   }
   bool setmyhb(long myhb) {
     this->myhb = myhb;
-    this->tstamp = par->getcurrtime();
     return TRUE;
   }
   long myhbinc() {
     this->myhb++;
-    this->tstamp = par->getcurrtime();
     return this->myhb;
   }
   bool setstatus(Statuses status) {
@@ -163,7 +164,10 @@ public:
   };
   void showPeersList();
   void showGossipList();
+  void showPingList();
+  void showMsgDir();
   void statusEval();
+  int incrmyhb() { me->sethb(me->myhbinc()); return me->getmyhb(); };
   size_t encode(MsgTypes t, char *iAddr=NULL);
   MsgTypes decode(char *iMsg);
   void send(char *addr) {

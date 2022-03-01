@@ -27,8 +27,8 @@
  4.0.0.0:0 [2] Node 3.0.0.0:0 joined at time 2
  4.0.0.0:0 [2] Node 2.0.0.0:0 joined at time 2
  3.0.0.0:0 [2] Node 1.0.0.0:0 joined at time 2
- 3.0.0.0:0 [2] Node 2.0.0.0:0 joined at time 2
  3.0.0.0:0 [2] Node 4.0.0.0:0 joined at time 2
+ 3.0.0.0:0 [2] Node 2.0.0.0:0 joined at time 2
  2.0.0.0:0 [2] Node 1.0.0.0:0 joined at time 2
  2.0.0.0:0 [2] Node 4.0.0.0:0 joined at time 2
  2.0.0.0:0 [2] Node 3.0.0.0:0 joined at time 2
@@ -44,26 +44,26 @@
  8.0.0.0:0 [3] Node 3.0.0.0:0 joined at time 3
  8.0.0.0:0 [3] Node 2.0.0.0:0 joined at time 3
  7.0.0.0:0 [3] Node 1.0.0.0:0 joined at time 3
+ 7.0.0.0:0 [3] Node 8.0.0.0:0 joined at time 3
  7.0.0.0:0 [3] Node 6.0.0.0:0 joined at time 3
  7.0.0.0:0 [3] Node 5.0.0.0:0 joined at time 3
  7.0.0.0:0 [3] Node 4.0.0.0:0 joined at time 3
  7.0.0.0:0 [3] Node 3.0.0.0:0 joined at time 3
  7.0.0.0:0 [3] Node 2.0.0.0:0 joined at time 3
- 7.0.0.0:0 [3] Node 8.0.0.0:0 joined at time 3
  6.0.0.0:0 [3] Node 1.0.0.0:0 joined at time 3
- 6.0.0.0:0 [3] Node 8.0.0.0:0 joined at time 3
- 6.0.0.0:0 [3] Node 7.0.0.0:0 joined at time 3
  6.0.0.0:0 [3] Node 5.0.0.0:0 joined at time 3
  6.0.0.0:0 [3] Node 4.0.0.0:0 joined at time 3
  6.0.0.0:0 [3] Node 3.0.0.0:0 joined at time 3
  6.0.0.0:0 [3] Node 2.0.0.0:0 joined at time 3
+ 6.0.0.0:0 [3] Node 8.0.0.0:0 joined at time 3
+ 6.0.0.0:0 [3] Node 7.0.0.0:0 joined at time 3
  5.0.0.0:0 [3] Node 1.0.0.0:0 joined at time 3
- 5.0.0.0:0 [3] Node 4.0.0.0:0 joined at time 3
- 5.0.0.0:0 [3] Node 3.0.0.0:0 joined at time 3
- 5.0.0.0:0 [3] Node 2.0.0.0:0 joined at time 3
  5.0.0.0:0 [3] Node 8.0.0.0:0 joined at time 3
  5.0.0.0:0 [3] Node 7.0.0.0:0 joined at time 3
  5.0.0.0:0 [3] Node 6.0.0.0:0 joined at time 3
+ 5.0.0.0:0 [3] Node 4.0.0.0:0 joined at time 3
+ 5.0.0.0:0 [3] Node 3.0.0.0:0 joined at time 3
+ 5.0.0.0:0 [3] Node 2.0.0.0:0 joined at time 3
  4.0.0.0:0 [3] Node 8.0.0.0:0 joined at time 3
  4.0.0.0:0 [3] Node 7.0.0.0:0 joined at time 3
  4.0.0.0:0 [3] Node 6.0.0.0:0 joined at time 3
@@ -110,7 +110,16 @@
  3.0.0.0:0 [4] Node 9.0.0.0:0 joined at time 4
  2.0.0.0:0 [4] Node 10.0.0.0:0 joined at time 4
  2.0.0.0:0 [4] Node 9.0.0.0:0 joined at time 4
- 10.0.0.0:0 [100] Node failed at time=100
+ 3.0.0.0:0 [100] Node failed at time=100
+ 10.0.0.0:0 [121] Node 3.0.0.0:0 removed at time 121
+ 9.0.0.0:0 [121] Node 3.0.0.0:0 removed at time 121
+ 8.0.0.0:0 [121] Node 3.0.0.0:0 removed at time 121
+ 7.0.0.0:0 [121] Node 3.0.0.0:0 removed at time 121
+ 6.0.0.0:0 [121] Node 3.0.0.0:0 removed at time 121
+ 5.0.0.0:0 [121] Node 3.0.0.0:0 removed at time 121
+ 4.0.0.0:0 [121] Node 3.0.0.0:0 removed at time 121
+ 2.0.0.0:0 [121] Node 3.0.0.0:0 removed at time 121
+ 1.0.0.0:0 [121] Node 3.0.0.0:0 removed at time 121
  1.0.0.0:0 [500] @@time=500
  1.0.0.0:0 [700] Leaving the group...
  2.0.0.0:0 [700] Leaving the group...

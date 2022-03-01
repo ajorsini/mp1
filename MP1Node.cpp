@@ -206,6 +206,8 @@ void MP1Node::checkMessages() {
     	memberNode->mp1q.pop();
 			if((r = op->decode((char *) ptr)) == LEAVE)
 			  break;
+			if(r == JOINREP)
+			  memberNode->inGroup = true;
     }
 		if(r == LEAVE) finishUpThisNode();
     return;
@@ -238,6 +240,7 @@ void MP1Node::nodeLoopOps() {
 
   op->statusEval();
 
+  op->incrmyhb();
   op->initPingList();
 	op->encode(PGYPING);
   pl = op->getpingList();
@@ -317,7 +320,8 @@ nodeEntry::nodeEntry(char *addr, long hb, long myhb, Statuses status, Params *pa
 	this->par = par;
   memcpy(this->addr, addr, sizeof(this->addr));
   this->hb = hb;
-  setmyhb(myhb);
+  this->myhb = myhb;
+	tstamp = par->getcurrtime();
   this->status = status;
   this->prev = this->next = NULL;
 }
@@ -404,6 +408,7 @@ char *nodeEntry::decode(char **b, Params *par) {
   memcpy(&this->status, *b, sizeof(this->status));
   *b += sizeof(this->status);
 	this->par = par;
+  this->tstamp = par->getcurrtime();
 	this->prev = this->next = NULL;
   return *b;
 }
@@ -560,7 +565,9 @@ void Operation::updatePeersList(nodeEntry *n) {
 				log->logNodeRemove(me->getAddress(&a), n->getAddress(&b));
 		}
   }
-  if(gssp) gossipList.insert(gossipList.begin(), x);
+  if(gssp)
+	  if(find(gossipList.begin(), gossipList.end(), x)==gossipList.end())
+	    gossipList.insert(gossipList.begin(), x);
 }
 
 void Operation::showPeersList() {
@@ -576,6 +583,18 @@ void Operation::showPeersList() {
   }
 }
 
+void Operation::showPingList() {
+	vector<nodeEntry *>::iterator it;
+  int i=0;
+  cout << "\nPing List ------------------------------------\n";
+	cout << "me: ";
+  me->show();
+  for(it=pingList.begin() ; it != pingList.end(); it++) {
+    cout << i++ << ": ";
+    (*it)->show();
+  }
+}
+
 void Operation::showGossipList() {
   vector<nodeEntry *>::iterator it;
   int i=0;
@@ -585,6 +604,22 @@ void Operation::showGossipList() {
     (*it)->show();
   }
 }
+
+void Operation::showMsgDir() {
+	char *f = from->addr, *t=to->addr;
+	printf("%u.%u.%u.%u:%u -> %u.%u.%u.%u:%u\n",
+														 (unsigned char) f[0],
+														 (unsigned char) f[1],
+														 (unsigned char) f[2],
+														 (unsigned char) f[3],
+														 (unsigned short) f[4],
+														 (unsigned char) t[0],
+														 (unsigned char) t[1],
+														 (unsigned char) t[2],
+														 (unsigned char) t[3],
+														 (unsigned short) t[4]);
+}
+
 
 size_t Operation::encode(MsgTypes t, char *iAddr) {
   char *b;
@@ -689,7 +724,10 @@ void Operation::statusEval() {
 	nodeEntry *n = this->first;
 	Address a, b;
 	while(n) {
-		if(n->getstatus() == DEAD) continue;
+		if(n->getstatus() == DEAD) {
+			n = n->getNext();
+			continue;
+		}
 		if(n->getElapsedt() >= TFAIL) {
 			if(n->getElapsedt() >= TREMOVE) {
 				n->setstatus(DEAD);
@@ -698,7 +736,8 @@ void Operation::statusEval() {
 				n->setstatus(SUSPECT);
 			}
 			n->setmyhb(me->getmyhb());
-			gossipList.insert(gossipList.begin(), n);
+			if(find(gossipList.begin(), gossipList.end(), n)==gossipList.end())
+			  gossipList.insert(gossipList.begin(), n);
 		}
 		n = n->getNext();
 	}
