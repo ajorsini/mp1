@@ -344,15 +344,8 @@ vector<MemberListEntry>::iterator Operation::_memberList_search(char *addr) {
 
 vector<MemberListEntry>::iterator Operation::_memberList_del(char *addr) {
   vector<MemberListEntry>::iterator p = _memberList_search(addr);
-
-  if(p != memberNode->memberList.end()) {
-	  printf("-- Memberlist(-) -- id: %d, port=%d, hb=%ld, ts=%ld\n", p->id,
-						   		 			   																			    p->port,
-							    																						      p->heartbeat,
-																													          p->timestamp);
-    if(p != memberNode->memberList.end())
-		  p = memberNode->memberList.erase(p);
-	}
+  if(p != memberNode->memberList.end())
+	  p = memberNode->memberList.erase(p);
   return p;
 }
 
